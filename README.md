@@ -1,117 +1,125 @@
-# Домашнее задание к занятию "`Название занятия`" - `Фамилия и имя студента`
+# Домашнее задание к занятию "`Отказоустойчивость в облаке`" - `Nikonov Danila`
 
-
-### Инструкция по выполнению домашнего задания
-
-   1. Сделайте `fork` данного репозитория к себе в Github и переименуйте его по названию или номеру занятия, например, https://github.com/имя-вашего-репозитория/git-hw или  https://github.com/имя-вашего-репозитория/7-1-ansible-hw).
-   2. Выполните клонирование данного репозитория к себе на ПК с помощью команды `git clone`.
-   3. Выполните домашнее задание и заполните у себя локально этот файл README.md:
-      - впишите вверху название занятия и вашу фамилию и имя
-      - в каждом задании добавьте решение в требуемом виде (текст/код/скриншоты/ссылка)
-      - для корректного добавления скриншотов воспользуйтесь [инструкцией "Как вставить скриншот в шаблон с решением](https://github.com/netology-code/sys-pattern-homework/blob/main/screen-instruction.md)
-      - при оформлении используйте возможности языка разметки md (коротко об этом можно посмотреть в [инструкции  по MarkDown](https://github.com/netology-code/sys-pattern-homework/blob/main/md-instruction.md))
-   4. После завершения работы над домашним заданием сделайте коммит (`git commit -m "comment"`) и отправьте его на Github (`git push origin`);
-   5. Для проверки домашнего задания преподавателем в личном кабинете прикрепите и отправьте ссылку на решение в виде md-файла в вашем Github.
-   6. Любые вопросы по выполнению заданий спрашивайте в чате учебной группы и/или в разделе “Вопросы по заданию” в личном кабинете.
-   
-Желаем успехов в выполнении домашнего задания!
-   
-### Дополнительные материалы, которые могут быть полезны для выполнения задания
-
-1. [Руководство по оформлению Markdown файлов](https://gist.github.com/Jekins/2bf2d0638163f1294637#Code)
-
----
 
 ### Задание 1
 
-`Приведите ответ в свободной форме........`
-
-1. `Заполните здесь этапы выполнения, если требуется ....`
-2. `Заполните здесь этапы выполнения, если требуется ....`
-3. `Заполните здесь этапы выполнения, если требуется ....`
-4. `Заполните здесь этапы выполнения, если требуется ....`
-5. `Заполните здесь этапы выполнения, если требуется ....`
-6. 
+**terraform playbook. main.tf**
 
 ```
-Поле для вставки кода...
-....
-....
-....
-....
+terraform {
+  required_providers {
+    yandex = {
+        source = "yandex-cloud/yandex"
+    }
+  }  
+}
+
+variable "yandex_cloud_token" {
+  type = string
+  description = "OAuth-token"
+}
+
+provider "yandex" {
+  token = var.yandex_cloud_token
+  cloud_id = "b1g4mjog84lvq7ff3qjg"
+  folder_id = "b1gn2i4hhslqsuta1jco"
+  zone = "ru-central1-a"
+}
+
+resource "yandex_vpc_network" "network-1" {
+  name = "network1"
+}
+
+resource "yandex_vpc_subnet" "subnet-1" {
+  name = "subnet1"
+  zone = "ru-central1-a"
+  network_id = yandex_vpc_network.network-1.id
+  v4_cidr_blocks = ["192.168.10.0/24"]
+}
+
+resource "yandex_compute_disk" "boot-disk" {
+  count = 2
+  name = "boot-disk-${count.index + 1}"
+  type = "network-hdd"
+  zone = "ru-central1-a"
+  size = "20"
+  image_id = "fd8k2ed4jspu35gfde1u"
+}
+
+resource "yandex_compute_instance" "terraform-1" {
+  count = 2
+
+  name = "terraform-${count.index + 1}"
+
+  resources {
+    cores = 2
+    memory = 2
+  }
+
+  boot_disk {
+    disk_id = yandex_compute_disk.boot-disk[count.index].id
+  }
+
+  metadata = {
+    ssh-keys = "ubuntu:${file("~/.ssh/id_rsa.pub")}"
+  }
+  
+  network_interface {
+    subnet_id = yandex_vpc_subnet.subnet-1.id
+    nat = true
+  }
+}
+
+resource "yandex_lb_target_group" "target_group" {
+  name      = "target-group"
+  folder_id = "b1gn2i4hhslqsuta1jco"  
+
+  target {
+    address   = yandex_compute_instance.terraform-1[0].network_interface[0].ip_address
+    subnet_id = yandex_vpc_subnet.subnet-1.id
+  }
+
+  target {
+    address   = yandex_compute_instance.terraform-1[1].network_interface[0].ip_address
+    subnet_id = yandex_vpc_subnet.subnet-1.id
+  }
+}
+
+resource "yandex_lb_network_load_balancer" "lb" {
+  name      = "test-network-lb"
+  folder_id = "b1gn2i4hhslqsuta1jco"
+
+  listener {
+    name        = "http-list"
+    port        = 80
+    target_port = 80
+    protocol    = "tcp" 
+  }
+
+  attached_target_group {
+    target_group_id = yandex_lb_target_group.target_group.id
+
+    healthcheck {
+      name                   = "http-health"
+      interval               = 10
+      timeout                = 5
+      unhealthy_threshold    = 2
+      healthy_threshold      = 2
+
+      http_options {
+        port = 80
+        path = "/"
+      }
+    }
+  }
+}
+
 ```
 
-`При необходимости прикрепитe сюда скриншоты
-![Название скриншота 1](ссылка на скриншот 1)`
+**target-group**
 
+![target-group](5388857739754727347.jpg)
 
----
+**Скриншот страницы, которая открылась при запросе IP-адреса балансировщика.**
 
-### Задание 2
-
-`Приведите ответ в свободной форме........`
-
-1. `Заполните здесь этапы выполнения, если требуется ....`
-2. `Заполните здесь этапы выполнения, если требуется ....`
-3. `Заполните здесь этапы выполнения, если требуется ....`
-4. `Заполните здесь этапы выполнения, если требуется ....`
-5. `Заполните здесь этапы выполнения, если требуется ....`
-6. 
-
-```
-Поле для вставки кода...
-....
-....
-....
-....
-```
-
-`При необходимости прикрепитe сюда скриншоты
-![Название скриншота 2](ссылка на скриншот 2)`
-
-
----
-
-### Задание 3
-
-`Приведите ответ в свободной форме........`
-
-1. `Заполните здесь этапы выполнения, если требуется ....`
-2. `Заполните здесь этапы выполнения, если требуется ....`
-3. `Заполните здесь этапы выполнения, если требуется ....`
-4. `Заполните здесь этапы выполнения, если требуется ....`
-5. `Заполните здесь этапы выполнения, если требуется ....`
-6. 
-
-```
-Поле для вставки кода...
-....
-....
-....
-....
-```
-
-`При необходимости прикрепитe сюда скриншоты
-![Название скриншота](ссылка на скриншот)`
-
-### Задание 4
-
-`Приведите ответ в свободной форме........`
-
-1. `Заполните здесь этапы выполнения, если требуется ....`
-2. `Заполните здесь этапы выполнения, если требуется ....`
-3. `Заполните здесь этапы выполнения, если требуется ....`
-4. `Заполните здесь этапы выполнения, если требуется ....`
-5. `Заполните здесь этапы выполнения, если требуется ....`
-6. 
-
-```
-Поле для вставки кода...
-....
-....
-....
-....
-```
-
-`При необходимости прикрепитe сюда скриншоты
-![Название скриншота](ссылка на скриншот)`
+![screan](5388857739754727364.jpg)
